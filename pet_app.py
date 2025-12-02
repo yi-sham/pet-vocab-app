@@ -14,64 +14,58 @@ except ImportError:
     st.error("請先安裝套件: pip install python-docx")
 
 # ==========================================
-# 1. 設定與 CSS (手機版面強力修正)
+# 1. 設定與 CSS (加大按鈕，優化觸控)
 # ==========================================
-st.set_page_config(page_title="PET 魔法森林 (手機版)", page_icon="🌱", layout="centered")
+st.set_page_config(page_title="PET 魔法森林", page_icon="🌱", layout="centered")
 
 ghibli_css = """
 <style>
+    /* 強制背景與文字顏色 */
     .stApp {
-        background-color: #fcfef1;
-        background-image: linear-gradient(120deg, #f0f9e8 0%, #fcfef1 100%);
+        background-color: #fcfef1 !important;
+        background-image: linear-gradient(120deg, #f0f9e8 0%, #fcfef1 100%) !important;
     }
-    h1, h2, h3, div, button, p, span { font-family: 'Comic Sans MS', 'Microsoft JhengHei', sans-serif; }
-    
-    /* --- 電腦版按鈕樣式 --- */
+    .stApp, .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp div, .stApp span, .stApp label, .stMarkdown {
+        color: #4a4a4a !important; 
+        font-family: 'Comic Sans MS', 'Microsoft JhengHei', sans-serif !important;
+    }
+
+    /* --- 按鈕超級加大版 (符合需求1) --- */
     .stButton>button {
         background-color: #88b04b; 
-        color: white; 
-        border-radius: 12px;
+        color: white !important;
+        border-radius: 15px; /* 更圓潤 */
         border: none; 
-        padding: 15px 0px; 
+        padding: 20px 0px; /* 垂直高度加大，更好按 */
         font-weight: bold; 
-        font-size: 20px; 
+        font-size: 24px; /* 字體加大 */
         width: 100%; 
-        box-shadow: 0 4px 0 #556b2f; 
-        transition: transform 0.05s; /* 極速反應 */
+        box-shadow: 0 6px 0 #556b2f; /* 厚實立體感 */
+        transition: transform 0.05s;
         touch-action: manipulation;
+        margin-bottom: 8px;
     }
     .stButton>button:active {
-        transform: translateY(4px);
+        transform: translateY(6px);
         box-shadow: none;
         background-color: #6a8a3a;
     }
-    .stButton>button:hover { background-color: #7aa03e; color: #fff; }
     
-    /* --- 手機版強制橫排修正 (關鍵 CSS) --- */
+    /* 送出/確認按鈕 (紅色) */
+    .confirm-btn > button {
+        background-color: #ff6f69 !important;
+        box-shadow: 0 6px 0 #d45d58 !important;
+    }
+
+    /* 手機版面修正 */
     @media (max-width: 768px) {
-        /* 強制讓 Columns 保持在同一行，不堆疊 */
         [data-testid="stHorizontalBlock"] {
-            flex-wrap: nowrap !important;
-            overflow-x: hidden !important;
-            gap: 2px !important; /* 減少間距 */
+            gap: 6px !important; /* 按鈕間距 */
         }
-        /* 讓每個 Column 允許縮小，不要硬撐 */
         [data-testid="column"] {
             min-width: 0px !important;
             flex: 1 1 0px !important;
-            padding: 0 1px !important; /* 極小內距 */
-        }
-        /* 手機上按鈕字體稍微縮小以適應 */
-        .stButton>button {
-            font-size: 16px !important; 
-            padding: 12px 0px !important;
-            border-radius: 8px !important;
-            margin-bottom: 5px !important;
-        }
-        /* 答案列在手機上縮小一點 */
-        .answer-column {
-            font-size: 1.8rem !important;
-            min-height: 50px !important;
+            padding: 0 2px !important;
         }
     }
 
@@ -84,17 +78,25 @@ ghibli_css = """
     
     /* 答案列 */
     .answer-column {
-        background-color: #fff9c4; padding: 10px; border-radius: 10px;
+        background-color: #fff9c4; padding: 15px; border-radius: 10px;
         border: 3px dashed #fbc02d; text-align: center; font-size: 2.2rem;
-        color: #333; font-weight: bold; min-height: 60px; margin-bottom: 15px;
+        color: #333 !important; 
+        font-weight: bold; min-height: 70px; margin-bottom: 15px;
         letter-spacing: 2px;
     }
     
-    /* 分數板 */
-    .score-board {
-        background-color: #fff3e0; padding: 8px; border-radius: 10px;
-        text-align: center; font-size: 1.1rem; color: #e65100; font-weight: bold;
-        border: 2px solid #ffb74d; margin-bottom: 10px;
+    /* PASS 過關標示 */
+    .pass-banner {
+        background-color: #66bb6a; color: white; padding: 20px;
+        border-radius: 15px; text-align: center; font-size: 2rem;
+        font-weight: bold; border: 4px solid #2e7d32;
+        margin-bottom: 20px; animation: pop 0.3s ease;
+    }
+    
+    .example-sentence {
+        background-color: #f0f4c3; padding: 10px; border-radius: 8px;
+        margin-top: 10px; font-style: italic; text-align: left;
+        border-left: 4px solid #c0ca33; font-size: 0.9rem;
     }
 </style>
 """
@@ -109,8 +111,7 @@ SAVE_FILE = 'user_save.json'
 def load_save_state():
     if os.path.exists(SAVE_FILE):
         try:
-            with open(SAVE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            with open(SAVE_FILE, 'r', encoding='utf-8') as f: return json.load(f)
         except: pass
     return {}
 
@@ -126,10 +127,9 @@ def save_current_state():
         "stage3_pool": st.session_state.stage3_pool,
         "stage3_ans": st.session_state.stage3_ans
     }
-    with open(SAVE_FILE, 'w', encoding='utf-8') as f:
-        json.dump(state, f)
+    with open(SAVE_FILE, 'w', encoding='utf-8') as f: json.dump(state, f)
 
-# HTML5 播放器
+# HTML5 播放器 (支援自動播放)
 def play_audio_html(text=None, slow_mode=False):
     if text:
         try:
@@ -137,21 +137,13 @@ def play_audio_html(text=None, slow_mode=False):
             fp = BytesIO()
             tts.write_to_fp(fp)
             b64 = base64.b64encode(fp.getvalue()).decode()
-            sound_html = f"""
-            <audio autoplay style="display:none;">
-                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-            """
+            sound_html = f"""<audio autoplay style="display:none;"><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>"""
             st.markdown(sound_html, unsafe_allow_html=True)
         except: pass
 
 # 點擊音效
 def play_click():
-    pop = """
-    <audio autoplay style="display:none;">
-        <source src="https://www.soundjay.com/buttons/sounds/button-16.mp3" type="audio/mp3">
-    </audio>
-    """
+    pop = """<audio autoplay style="display:none;"><source src="https://www.soundjay.com/buttons/sounds/button-16.mp3" type="audio/mp3"></audio>"""
     st.markdown(pop, unsafe_allow_html=True)
 
 # ==========================================
@@ -180,9 +172,7 @@ def parse_word_file(uploaded_file):
                 raw_example = cells[4].text.strip() if len(cells) > 4 else ""
                 ipa = raw_ipa.replace("/", "")
                 data.append({
-                    "day": day_counter,
-                    "word": clean_word, "pos": pos, "ipa": ipa,
-                    "meaning": raw_meaning, "example": raw_example
+                    "day": day_counter, "word": clean_word, "pos": pos, "ipa": ipa, "meaning": raw_meaning, "example": raw_example
                 })
         day_counter += 1
         if day_counter > 28: day_counter = 28
@@ -269,7 +259,6 @@ with st.sidebar:
     if st.session_state.mode == 'normal' and st.session_state.data_loaded:
         st.markdown("---")
         st.write(f"目前: Day {st.session_state.current_day}")
-        # 手機版：天數按鈕減少為一排 4 個
         cols = st.columns(4)
         for i in range(1, 31):
             is_done = i in st.session_state.completed_days
@@ -328,7 +317,7 @@ if st.session_state.daily_quiz_active:
     st.markdown(f"## ⚔️ Day {st.session_state.current_day} 驗收")
     total_q = len(st.session_state.quiz_data)
     current_q_idx = st.session_state.quiz_q_index
-    st.markdown(f"""<div class="score-board">第 {current_q_idx + 1} / {total_q} 題 | 得分: {st.session_state.quiz_score}</div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div style='background:#fff3e0;padding:8px;border-radius:10px;text-align:center;font-weight:bold;color:#e65100;border:2px solid #ffb74d;margin-bottom:10px;'>第 {current_q_idx + 1} / {total_q} 題 | 得分: {st.session_state.quiz_score}</div>""", unsafe_allow_html=True)
 
     if current_q_idx < total_q:
         q = st.session_state.quiz_data[current_q_idx]
@@ -337,7 +326,7 @@ if st.session_state.daily_quiz_active:
             if st.button("🔊", type="primary", key=f"q_play_{current_q_idx}"):
                 st.session_state.trigger_audio = q['word']
                 st.rerun()
-        with col_info: st.info("請選出正確意思：")
+        with col_info: st.info("選出正確意思：")
 
         for opt in q['options']:
             if st.button(opt, use_container_width=True, key=f"opt_{opt}_{current_q_idx}"):
@@ -355,8 +344,8 @@ if st.session_state.daily_quiz_active:
                 st.session_state.quiz_q_index += 1
                 st.rerun()
     else:
-        st.balloons()
-        st.success(f"🏆 驗收完成！得分: {st.session_state.quiz_score}")
+        st.markdown('<div class="pass-banner">✅ PASS</div>', unsafe_allow_html=True)
+        st.success(f"驗收完成！得分: {st.session_state.quiz_score}")
         if st.session_state.mode == 'normal':
             if st.button("🚀 下一天"):
                 if st.session_state.current_day not in st.session_state.completed_days:
@@ -406,8 +395,12 @@ if ipa == 'nan': ipa = ""
 st.subheader(f"{header_text}")
 st.progress((st.session_state.word_index) / len(current_words))
 
-# Stage 1: 認知
+# Stage 1: 認知 (自動發音)
 if st.session_state.stage == 1:
+    # 進入 Stage 1 時自動觸發一次發音 (如果是剛切換過來)
+    # 為了避免每次點擊按鈕都重播，這裡可以加個 flag，或直接放著讓它播
+    play_audio_html(target, slow_mode=slow_audio)
+
     st.markdown(f"""
     <div class="word-card">
         <h1 style="color:#2c5e2e;">{target}</h1>
@@ -429,14 +422,14 @@ if st.session_state.stage == 1:
     
     col1, col2, col3 = st.columns([1,1,2])
     in_note = target in st.session_state.notebook
-    if col1.button("💔 移除" if in_note else "❤️ 筆記"):
+    if col1.button("💔" if in_note else "❤️"): # 簡化按鈕文字
         st.session_state.trigger_click = True
         if in_note: st.session_state.notebook.remove(target)
         else: st.session_state.notebook.add(target)
         save_current_state()
         st.rerun()
 
-    if col2.button("🔊 發音", key="s1_audio"):
+    if col2.button("🔊"):
         st.session_state.trigger_audio = target
         st.rerun()
 
@@ -465,7 +458,6 @@ elif st.session_state.stage == 2:
          chunks = split_syllables_chunk(target)
          st.session_state.stage2_pool = random.sample(chunks, len(chunks))
 
-    # 改為 3 欄，適應手機
     cols = st.columns(3)
     for i, s in enumerate(st.session_state.stage2_pool):
         if s not in st.session_state.stage2_ans:
@@ -476,12 +468,12 @@ elif st.session_state.stage == 2:
                 st.rerun()
             
     c1, c2 = st.columns(2)
-    if c1.button("↺ 重來"):
+    if c1.button("↺"):
         st.session_state.stage2_ans = []
         st.session_state.trigger_click = True
         save_current_state()
         st.rerun()
-    if c2.button("✅ 確認"):
+    if c2.button("✅", key="confirm_s2"):
         if "".join(st.session_state.stage2_ans) == target.replace(" ", ""):
             st.success("Correct!")
             chars = list(target.replace(" ", ""))
@@ -504,51 +496,62 @@ elif st.session_state.stage == 3:
     curr_ans_str = "".join(st.session_state.stage3_ans)
     st.markdown(f'<div class="answer-column">{curr_ans_str}</div>', unsafe_allow_html=True)
     
+    # 判斷是否已拼完
+    is_finished = "".join(st.session_state.stage3_ans) == target.replace(" ", "")
+    
     if not st.session_state.stage3_pool and not st.session_state.stage3_ans:
         chars = list(target.replace(" ", ""))
         random.shuffle(chars)
         st.session_state.stage3_pool = chars
 
-    st.write("👇 點擊字母：")
-    # 改為 5 欄，適應手機
-    pool_cols = st.columns(5)
-    for i, char in enumerate(st.session_state.stage3_pool):
-        if pool_cols[i % 5].button(char, key=f"s3_char_{i}"):
-            st.session_state.stage3_ans.append(char)
-            st.session_state.stage3_pool.pop(i)
-            st.session_state.trigger_click = True
-            save_current_state()
-            st.rerun()
+    if not is_finished:
+        st.write("👇 點擊字母：")
+        # 改為 4 欄，讓按鈕更大
+        pool_cols = st.columns(4)
+        for i, char in enumerate(st.session_state.stage3_pool):
+            if pool_cols[i % 4].button(char, key=f"s3_char_{i}"):
+                st.session_state.stage3_ans.append(char)
+                st.session_state.stage3_pool.pop(i)
+                st.session_state.trigger_click = True
+                save_current_state()
+                st.rerun()
+    else:
+        st.info("拼寫完成！請按右下方紅色按鈕送出")
 
     st.markdown("<br>", unsafe_allow_html=True)
     ctrl_c1, ctrl_c2, ctrl_c3 = st.columns(3)
-    if ctrl_c1.button("⌫ 退格"):
+    if ctrl_c1.button("⌫"): # 退格
         if st.session_state.stage3_ans:
             last_char = st.session_state.stage3_ans.pop()
             st.session_state.stage3_pool.append(last_char)
             st.session_state.trigger_click = True
             save_current_state()
             st.rerun()
-    if ctrl_c2.button("↺ 清空"):
+    if ctrl_c2.button("↺"): # 清空
         st.session_state.stage3_pool.extend(st.session_state.stage3_ans)
         st.session_state.stage3_ans = []
         st.session_state.trigger_click = True
         save_current_state()
         st.rerun()
-    if ctrl_c3.button("✅ 送出", type="primary"):
-        user_word = "".join(st.session_state.stage3_ans)
-        target_clean = target.replace(" ", "")
-        if user_word.lower() == target_clean.lower():
-            st.balloons()
-            st.success("太棒了！")
-            time.sleep(0.5)
-            st.session_state.word_index += 1
-            st.session_state.stage = 1
-            save_current_state()
-            st.rerun()
-        else:
-            st.error(f"拼錯囉！正確答案: {target}")
-            if target not in st.session_state.notebook:
-                st.session_state.notebook.add(target)
-                st.toast(f"已加入筆記本📕")
+    
+    # 使用 container 包裹按鈕以套用紅色樣式
+    with ctrl_c3:
+        st.markdown('<div class="confirm-btn">', unsafe_allow_html=True)
+        if st.button("👑"): # 送出
+            user_word = "".join(st.session_state.stage3_ans)
+            target_clean = target.replace(" ", "")
+            if user_word.lower() == target_clean.lower():
+                # 改為顯示 PASS Banner，不使用氣球
+                st.markdown('<div class="pass-banner">✅ PASS</div>', unsafe_allow_html=True)
+                time.sleep(0.5)
+                st.session_state.word_index += 1
+                st.session_state.stage = 1
                 save_current_state()
+                st.rerun()
+            else:
+                st.error(f"拼錯囉！正確答案: {target}")
+                if target not in st.session_state.notebook:
+                    st.session_state.notebook.add(target)
+                    st.toast(f"已加入筆記本📕")
+                    save_current_state()
+        st.markdown('</div>', unsafe_allow_html=True)
