@@ -13,9 +13,9 @@ except ImportError:
     st.error("請先安裝套件: pip install python-docx")
 
 # ==========================================
-# 1. 設定與 CSS (宮崎駿風格)
+# 1. 設定與 CSS
 # ==========================================
-st.set_page_config(page_title="PET 魔法森林 (智慧版)", page_icon="🌱", layout="centered")
+st.set_page_config(page_title="PET 魔法森林 (驗收版)", page_icon="🌱", layout="centered")
 
 ghibli_css = """
 <style>
@@ -45,13 +45,13 @@ ghibli_css = """
         border-left: 5px solid #c0ca33;
     }
     
-    /* 遮罩樣式 */
-    .mask-box {
-        background-color: #e0e0e0; color: #757575; padding: 20px;
-        border-radius: 10px; text-align: center; cursor: pointer;
-        border: 2px dashed #bdbdbd; margin-top: 10px;
+    /* 遊戲分數板 */
+    .score-board {
+        background-color: #fff3e0; padding: 15px; border-radius: 10px;
+        text-align: center; font-size: 1.5rem; color: #e65100; font-weight: bold;
+        border: 2px solid #ffb74d; margin-bottom: 20px;
     }
-    
+
     /* 答案列 */
     .answer-column {
         background-color: #fff9c4; padding: 15px; border-radius: 12px;
@@ -101,21 +101,15 @@ def save_current_state():
 def parse_word_file(uploaded_file):
     doc = docx.Document(uploaded_file)
     data = []
-    
-    # 針對新格式優化：跳過第一欄序號
     day_counter = 1
     
     for table in doc.tables:
         if len(table.rows) < 2: continue
-        
         for row in table.rows[1:]:
             cells = row.cells
-            # 確保欄位足夠 (序號, 單字, 音標, 中文, 例句)
             if len(cells) >= 4:
                 raw_word = cells[1].text.strip()
                 if not raw_word: continue
-                
-                # 分離單字與詞性
                 match = re.match(r"([a-zA-Z\s\-\/']+)[\s]*(\(.*\))?", raw_word)
                 clean_word = raw_word
                 pos = ""
@@ -126,7 +120,6 @@ def parse_word_file(uploaded_file):
                 raw_ipa = cells[2].text.strip() if len(cells) > 2 else ""
                 raw_meaning = cells[3].text.strip() if len(cells) > 3 else ""
                 raw_example = cells[4].text.strip() if len(cells) > 4 else ""
-                
                 ipa = raw_ipa.replace("/", "")
                 
                 data.append({
@@ -137,7 +130,6 @@ def parse_word_file(uploaded_file):
                     "meaning": raw_meaning,
                     "example": raw_example
                 })
-        
         day_counter += 1
         if day_counter > 28: day_counter = 28
 
@@ -163,27 +155,32 @@ if 'initialized' not in st.session_state:
     st.session_state.completed_days = set(saved_data["completed_days"])
     st.session_state.initialized = True
 
+# UI 變數
 if 'stage2_pool' not in st.session_state: st.session_state.stage2_pool = []
 if 'stage2_ans' not in st.session_state: st.session_state.stage2_ans = []
 if 'stage3_pool' not in st.session_state: st.session_state.stage3_pool = []
 if 'stage3_ans' not in st.session_state: st.session_state.stage3_ans = []
 if 'mode' not in st.session_state: st.session_state.mode = 'normal'
-if 'show_answer' not in st.session_state: st.session_state.show_answer = False # 用於遮罩模式
+if 'show_answer' not in st.session_state: st.session_state.show_answer = False
+
+# 遊戲狀態
+if 'daily_quiz_active' not in st.session_state: st.session_state.daily_quiz_active = False
+if 'quiz_q_index' not in st.session_state: st.session_state.quiz_q_index = 0
+if 'quiz_score' not in st.session_state: st.session_state.quiz_score = 0
+if 'quiz_data' not in st.session_state: st.session_state.quiz_data = []
 
 # ==========================================
-# 5. 側邊欄 (新增設定)
+# 5. 側邊欄
 # ==========================================
 with st.sidebar:
     st.title("🎒 冒險背包")
-    
-    # --- 新增功能：設定區 ---
-    st.write("### ⚙️ 學習設定")
-    slow_audio = st.checkbox("🐢 慢速發音 (Slow Mode)", value=False)
-    mask_mode = st.checkbox("🫣 遮住中文 (Active Recall)", value=False, help="開啟後，第一關會先隱藏中文和例句，點擊後才顯示。")
+    st.write("### ⚙️ 設定")
+    slow_audio = st.checkbox("🐢 慢速發音", value=False)
+    mask_mode = st.checkbox("🫣 遮住中文", value=False)
     st.markdown("---")
 
     if st.session_state.data_loaded:
-        if st.button("🗑️ 清除舊資料 (更換檔案)"):
+        if st.button("🗑️ 清除舊資料 (換檔)"):
             if os.path.exists(DB_FILE): os.remove(DB_FILE)
             if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE)
             st.session_state.data_loaded = False
@@ -191,28 +188,23 @@ with st.sidebar:
             st.rerun()
             
     if not st.session_state.data_loaded:
-        st.warning("請上傳 Word 檔")
-        uploaded_file = st.file_uploader("選擇檔案...", type=['docx'])
+        uploaded_file = st.file_uploader("上傳 Word 檔", type=['docx'])
         if uploaded_file:
             try:
-                with st.spinner("解析新格式中..."):
+                with st.spinner("讀取中..."):
                     df_new = parse_word_file(uploaded_file)
                     df_new.to_csv(DB_FILE, index=False)
                     st.session_state.df = df_new
                     st.session_state.data_loaded = True
                     st.session_state.current_day = 1
-                    st.session_state.word_index = 0
-                    st.session_state.stage = 1
                     save_current_state()
-                    st.success("讀取成功！")
-                    time.sleep(1)
                     st.rerun()
             except Exception as e:
                 st.error(f"錯誤: {e}")
 
     # 模式切換
     st.write("### 🎯 模式")
-    mode_selection = st.radio("選擇", ["🌲 森林闖關", "📕 筆記本"], 
+    mode_selection = st.radio("選擇", ["🌲 森林闖關", "📕 魔法筆記本"], 
              index=0 if st.session_state.mode == 'normal' else 1)
     
     new_mode = 'normal' if "森林" in mode_selection else 'notebook'
@@ -220,11 +212,12 @@ with st.sidebar:
         st.session_state.mode = new_mode
         st.session_state.word_index = 0
         st.session_state.stage = 1
+        st.session_state.daily_quiz_active = False # 切換模式時關閉測驗
         st.rerun()
 
     if st.session_state.mode == 'normal' and st.session_state.data_loaded:
         st.markdown("---")
-        st.write(f"目前進度: Day {st.session_state.current_day}")
+        st.write(f"目前: Day {st.session_state.current_day}")
         cols = st.columns(5)
         for i in range(1, 31):
             is_done = i in st.session_state.completed_days
@@ -236,6 +229,7 @@ with st.sidebar:
                 st.session_state.current_day = i
                 st.session_state.word_index = 0
                 st.session_state.stage = 1
+                st.session_state.daily_quiz_active = False # 重置測驗
                 save_current_state()
                 st.rerun()
 
@@ -243,53 +237,10 @@ with st.sidebar:
 # 6. 主程式
 # ==========================================
 if not st.session_state.data_loaded:
-    st.info("👈 請在左側上傳您的新 Word 檔案")
+    st.info("👈 請先上傳檔案")
     st.stop()
 
-if st.session_state.mode == 'normal':
-    current_words = st.session_state.df[st.session_state.df['day'] == st.session_state.current_day].reset_index(drop=True)
-    header_text = f"Day {st.session_state.current_day} - 闖關中"
-else:
-    if len(st.session_state.notebook) == 0:
-        st.info("筆記本是空的。")
-        st.stop()
-    current_words = st.session_state.df[st.session_state.df['word'].isin(st.session_state.notebook)].reset_index(drop=True)
-    header_text = f"📕 筆記本複習"
-
-if current_words.empty:
-    st.warning("無資料")
-    st.stop()
-
-if st.session_state.word_index >= len(current_words):
-    st.balloons()
-    st.success("🎉 完成！")
-    if st.session_state.mode == 'normal':
-        if st.session_state.current_day not in st.session_state.completed_days:
-            st.session_state.completed_days.add(st.session_state.current_day)
-            save_current_state()
-        if st.button("🚀 下一天"):
-            st.session_state.current_day += 1
-            st.session_state.word_index = 0
-            st.session_state.stage = 1
-            save_current_state()
-            st.rerun()
-    else:
-        if st.button("🔄 重來"):
-            st.session_state.word_index = 0
-            st.session_state.stage = 1
-            st.rerun()
-    st.stop()
-
-w_data = current_words.iloc[st.session_state.word_index]
-target = str(w_data['word'])
-meaning = str(w_data['meaning'])
-pos = str(w_data.get('pos', ''))
-ipa = str(w_data.get('ipa', ''))
-example = str(w_data.get('example', ''))
-if example == 'nan': example = ""
-if ipa == 'nan': ipa = ""
-
-# 工具函式 (支援慢速)
+# 工具函式
 def play_audio(text, slow_mode=False):
     try:
         tts = gTTS(text=text, lang='en', slow=slow_mode)
@@ -309,42 +260,169 @@ def split_syllables_chunk(word):
         temp = temp[cut:]
     return chunks
 
+# 準備資料
+if st.session_state.mode == 'normal':
+    current_words = st.session_state.df[st.session_state.df['day'] == st.session_state.current_day].reset_index(drop=True)
+    header_text = f"Day {st.session_state.current_day} - 闖關中"
+else:
+    if len(st.session_state.notebook) == 0:
+        st.info("筆記本是空的。")
+        st.stop()
+    current_words = st.session_state.df[st.session_state.df['word'].isin(st.session_state.notebook)].reset_index(drop=True)
+    header_text = f"📕 筆記本複習"
+
+if current_words.empty:
+    st.warning("無資料")
+    st.stop()
+
+# ==========================================
+# 每日聽力測驗邏輯 (新增部分)
+# ==========================================
+if st.session_state.daily_quiz_active:
+    st.markdown(f"## ⚔️ Day {st.session_state.current_day} 聽力驗收")
+    
+    total_q = len(st.session_state.quiz_data)
+    current_q_idx = st.session_state.quiz_q_index
+    
+    # 顯示分數
+    st.markdown(f"""
+    <div class="score-board">
+        第 {current_q_idx + 1} / {total_q} 題 | 得分: {st.session_state.quiz_score}
+    </div>
+    """, unsafe_allow_html=True)
+
+    if current_q_idx < total_q:
+        q = st.session_state.quiz_data[current_q_idx]
+        
+        # 播放聲音
+        col_p, col_info = st.columns([1, 4])
+        with col_p:
+            if st.button("🔊 播放聲音", type="primary", key=f"q_play_{current_q_idx}"):
+                play_audio(q['word'], slow_mode=slow_audio)
+        with col_info:
+            st.info("請聽發音，選出正確意思：")
+
+        # 選項
+        for opt in q['options']:
+            if st.button(opt, use_container_width=True, key=f"opt_{opt}_{current_q_idx}"):
+                if opt == q['correct']:
+                    st.toast("🎉 答對了！")
+                    st.session_state.quiz_score += 1
+                    time.sleep(0.5)
+                else:
+                    st.error(f"❌ 錯囉！是 {q['word']} ({q['correct']})")
+                    # 答錯自動加入筆記
+                    if q['word'] not in st.session_state.notebook:
+                        st.session_state.notebook.add(q['word'])
+                        st.toast(f"已加入筆記本: {q['word']}")
+                        save_current_state()
+                    time.sleep(2)
+                
+                st.session_state.quiz_q_index += 1
+                st.rerun()
+    else:
+        # 測驗結束
+        st.balloons()
+        st.success(f"🏆 驗收完成！最終得分: {st.session_state.quiz_score} / {total_q}")
+        
+        if st.session_state.mode == 'normal':
+            if st.button("🚀 完成今日！前往下一天"):
+                # 打卡
+                if st.session_state.current_day not in st.session_state.completed_days:
+                    st.session_state.completed_days.add(st.session_state.current_day)
+                
+                # 前往下一天
+                st.session_state.current_day += 1
+                st.session_state.word_index = 0
+                st.session_state.stage = 1
+                st.session_state.daily_quiz_active = False # 關閉測驗
+                save_current_state()
+                st.rerun()
+        else:
+            if st.button("🔙 回到筆記本"):
+                st.session_state.daily_quiz_active = False
+                st.rerun()
+    st.stop() # 測驗模式下不顯示下方的學習卡片
+
+# ==========================================
+# 正常學習流程
+# ==========================================
+
+# 檢查今日單字是否全部學完
+if st.session_state.word_index >= len(current_words):
+    st.success("🎉 單字學習完畢！準備好接受挑戰了嗎？")
+    
+    if st.button("⚔️ 進入聽力驗收 (Quiz)", type="primary"):
+        # 生成題目
+        questions = []
+        full_df = st.session_state.df
+        
+        # 為了產生干擾項，我們需要整個資料庫
+        all_meanings = full_df['meaning'].unique().tolist()
+        
+        for idx, row in current_words.iterrows():
+            target = row['word']
+            correct = row['meaning']
+            
+            # 隨機選 3 個錯誤選項
+            distractors = random.sample([m for m in all_meanings if m != correct], 3)
+            options = distractors + [correct]
+            random.shuffle(options)
+            
+            questions.append({
+                "word": target,
+                "correct": correct,
+                "options": options
+            })
+        
+        random.shuffle(questions) # 題目順序打亂
+        st.session_state.quiz_data = questions
+        st.session_state.quiz_q_index = 0
+        st.session_state.quiz_score = 0
+        st.session_state.daily_quiz_active = True
+        st.rerun()
+        
+    st.stop()
+
+# --- 以下為單字學習卡片邏輯 (保持不變) ---
+w_data = current_words.iloc[st.session_state.word_index]
+target = str(w_data['word'])
+meaning = str(w_data['meaning'])
+pos = str(w_data.get('pos', ''))
+ipa = str(w_data.get('ipa', ''))
+example = str(w_data.get('example', ''))
+if example == 'nan': example = ""
+if ipa == 'nan': ipa = ""
+
 st.subheader(f"{header_text}")
 st.progress((st.session_state.word_index) / len(current_words))
 
-# --- Stage 1: 認知 (Active Recall) ---
+# Stage 1: 認知
 if st.session_state.stage == 1:
-    
-    # 顯示英文卡片
     st.markdown(f"""
     <div class="word-card">
         <h1 style="color:#2c5e2e;">{target}</h1>
         <p style='color:#888; font-size: 1.2em;'>{pos} <span style="color:#d81b60;">/{ipa}/</span></p>
     """, unsafe_allow_html=True)
     
-    # 遮罩邏輯
     if mask_mode and not st.session_state.show_answer:
-        st.warning("🫣 嘗試回想中文意思與例句...")
-        if st.button("👀 查看答案"):
+        st.warning("🫣 點擊查看中文與例句")
+        if st.button("👀 顯示"):
             st.session_state.show_answer = True
             st.rerun()
     else:
         st.markdown(f"""
         <h2 style='margin-top:10px;'>{meaning}</h2>
-        <div class="example-sentence">
-            <b>Example:</b><br>
-            {example}
-        </div>
+        <div class="example-sentence"><b>Example:</b><br>{example}</div>
         """, unsafe_allow_html=True)
         if mask_mode:
             if st.button("🙈 隱藏"):
                 st.session_state.show_answer = False
                 st.rerun()
     
-    st.markdown("</div>", unsafe_allow_html=True) # End card
+    st.markdown("</div>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1,1,2])
-    
     in_note = target in st.session_state.notebook
     if col1.button("💔 移除" if in_note else "❤️ 筆記"):
         if in_note: st.session_state.notebook.remove(target)
@@ -360,18 +438,16 @@ if st.session_state.stage == 1:
         st.session_state.stage2_pool = random.sample(chunks, len(chunks))
         st.session_state.stage2_ans = []
         st.session_state.stage = 2
-        st.session_state.show_answer = False # 重置遮罩
+        st.session_state.show_answer = False
         save_current_state()
         st.rerun()
 
-# --- Stage 2: 音節拼圖 ---
+# Stage 2: 音節拼圖
 elif st.session_state.stage == 2:
     st.subheader("🧩 階段二：音節拼圖")
     st.info(f"提示：{meaning}")
+    if st.button("🔊 聽發音", key="s2_audio"): play_audio(target, slow_mode=slow_audio)
     
-    if st.button("🔊 聽發音", key="s2_audio"):
-        play_audio(target, slow_mode=slow_audio)
-
     curr = "".join(st.session_state.stage2_ans)
     st.markdown(f'<div class="answer-column">{curr}</div>', unsafe_allow_html=True)
     
@@ -400,13 +476,11 @@ elif st.session_state.stage == 2:
         else:
             st.error("錯誤")
 
-# --- Stage 3: 字母拼寫 (自動筆記) ---
+# Stage 3: 字母拼寫
 elif st.session_state.stage == 3:
     st.subheader("✍️ 階段三：字母拼寫")
     st.info(f"請拼出：{meaning}")
-    
-    if st.button("🔊 聽發音", key="s3_audio"):
-        play_audio(target, slow_mode=slow_audio)
+    if st.button("🔊 聽發音", key="s3_audio"): play_audio(target, slow_mode=slow_audio)
 
     curr_ans_str = "".join(st.session_state.stage3_ans)
     st.markdown(f'<div class="answer-column">{curr_ans_str}</div>', unsafe_allow_html=True)
@@ -420,20 +494,16 @@ elif st.session_state.stage == 3:
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
-    
     ctrl_c1, ctrl_c2, ctrl_c3 = st.columns(3)
-    
     if ctrl_c1.button("⌫ 退格"):
         if st.session_state.stage3_ans:
             last_char = st.session_state.stage3_ans.pop()
             st.session_state.stage3_pool.append(last_char)
             st.rerun()
-            
     if ctrl_c2.button("↺ 清空"):
         st.session_state.stage3_pool.extend(st.session_state.stage3_ans)
         st.session_state.stage3_ans = []
         st.rerun()
-        
     if ctrl_c3.button("✅ 送出", type="primary"):
         user_word = "".join(st.session_state.stage3_ans)
         target_clean = target.replace(" ", "")
@@ -447,9 +517,8 @@ elif st.session_state.stage == 3:
             save_current_state()
             st.rerun()
         else:
-            st.error(f"拼錯囉！正確答案是: {target}")
-            # 自動加入筆記本功能
+            st.error(f"拼錯囉！")
             if target not in st.session_state.notebook:
                 st.session_state.notebook.add(target)
-                st.toast(f"已自動加入筆記本 📕: {target}")
+                st.toast(f"已自動加入筆記本 📕")
                 save_current_state()
