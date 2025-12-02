@@ -8,19 +8,23 @@ import re
 import base64
 from gtts import gTTS
 from io import BytesIO
+import streamlit.components.v1 as components
+
 try:
     import docx
 except ImportError:
     st.error("請先安裝套件: pip install python-docx")
 
 # ==========================================
-# 1. 設定與 CSS (核彈級排版修正)
+# 1. 設定與 CSS
 # ==========================================
 st.set_page_config(page_title="PET 魔法森林", page_icon="🌱", layout="centered")
 
+# 我們將使用 Streamlit 的 session state 來處理 HTML 按鈕的回傳值
+if 'clicked_char' not in st.session_state: st.session_state.clicked_char = None
+
 ghibli_css = """
 <style>
-    /* 強制背景 */
     .stApp {
         background-color: #fcfef1 !important;
         background-image: linear-gradient(120deg, #f0f9e8 0%, #fcfef1 100%) !important;
@@ -29,80 +33,8 @@ ghibli_css = """
         color: #4a4a4a !important; 
         font-family: 'Comic Sans MS', 'Microsoft JhengHei', sans-serif !important;
     }
-
-    /* --- 按鈕樣式 (針對字母方塊) --- */
-    .stButton > button {
-        background-color: #ffffff !important;
-        color: #2c5e2e !important; /* 深綠色字 */
-        border: 3px solid #88b04b !important;
-        border-radius: 16px !important;
-        height: 65px !important; /* 方塊高度 */
-        padding: 0px !important;
-        
-        /* 這裡控制字母大小 */
-        font-weight: 900 !important; 
-        font-size: 32px !important; /* 超大字母 */
-        
-        width: 100%; 
-        box-shadow: 0 5px 0 #88b04b !important;
-        margin: 4px 0px !important;
-        display: flex; 
-        align-items: center; 
-        justify-content: center;
-        line-height: 1 !important; /* 確保文字垂直置中 */
-    }
     
-    .stButton > button:active {
-        transform: translateY(4px);
-        box-shadow: none !important;
-        background-color: #f1f8e9 !important;
-    }
-    
-    /* 紅色功能按鈕例外處理 */
-    .confirm-btn > button {
-        background-color: #ff6f69 !important;
-        border-color: #d45d58 !important;
-        box-shadow: 0 5px 0 #d45d58 !important;
-        color: white !important;
-        font-size: 24px !important;
-    }
-
-    /* --- 核心修正：強制手機橫排 (Grid System) --- */
-    /* 我們針對放置字母按鈕的容器進行暴力排版 */
-    
-    [data-testid="column"] {
-        /* 強制每個欄位寬度為 25% (一排4個) */
-        width: 25% !important;
-        flex: 0 0 25% !important;
-        min-width: 25% !important;
-        max-width: 25% !important;
-        padding: 0 4px !important; /* 按鈕左右間距 */
-        display: inline-block !important; /* 避免區塊堆疊 */
-    }
-
-    [data-testid="stHorizontalBlock"] {
-        /* 強制容器允許內容換行，並且橫向排列 */
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        align-items: flex-start !important;
-        gap: 0px !important;
-    }
-
-    /* --- 針對功能按鈕區 (上一頁/下一頁/發音) 的例外 --- */
-    /* 我們希望功能按鈕區不要變得那麼擠，所以這裡做個區隔 */
-    /* 透過 Python 端給予不同的容器結構來區分，這裡先維持通用 */
-
-    /* 答案列 */
-    .answer-column {
-        background-color: #fff; padding: 15px; border-radius: 20px;
-        border: 3px solid #88b04b; text-align: center; 
-        font-size: 3rem; /* 答案字也加大 */
-        color: #2c5e2e !important; font-weight: bold; min-height: 80px; 
-        margin-bottom: 20px; letter-spacing: 2px;
-        box-shadow: inset 0 3px 6px rgba(0,0,0,0.1);
-        display: flex; align-items: center; justify-content: center;
-    }
+    /* 隱藏預設按鈕樣式，因為我們會用自定義 HTML 按鈕 */
     
     /* 單字卡 */
     .word-card {
@@ -111,11 +43,38 @@ ghibli_css = """
         text-align: center; margin-bottom: 20px;
     }
     
+    /* 答案列 */
+    .answer-column {
+        background-color: #fff; padding: 15px; border-radius: 20px;
+        border: 3px solid #88b04b; text-align: center; 
+        font-size: 3rem; color: #2c5e2e !important; font-weight: bold; 
+        min-height: 80px; margin-bottom: 20px; letter-spacing: 2px;
+        box-shadow: inset 0 3px 6px rgba(0,0,0,0.1);
+        display: flex; align-items: center; justify-content: center;
+    }
+    
     .example-sentence {
         background-color: #f0f4c3; padding: 12px; border-radius: 10px;
         margin-top: 15px; font-style: italic; text-align: left;
-        border-left: 5px solid #c0ca33; font-size: 1.1rem;
-        line-height: 1.5;
+        border-left: 5px solid #c0ca33; font-size: 1.1rem; line-height: 1.5;
+    }
+    
+    /* 普通按鈕優化 */
+    .stButton>button {
+        background-color: #ffffff !important;
+        color: #4a4a4a !important;
+        border: 3px solid #88b04b !important;
+        border-radius: 12px !important;
+        height: 50px !important;
+        font-weight: bold !important; 
+        font-size: 20px !important;
+        width: 100%; 
+        box-shadow: 0 4px 0 #88b04b !important;
+        margin-top: 5px;
+    }
+    .stButton>button:active {
+        transform: translateY(4px);
+        box-shadow: none !important;
     }
 </style>
 """
@@ -248,12 +207,12 @@ if 'stage3_pool' not in st.session_state: st.session_state.stage3_pool = []
 if 'stage3_ans' not in st.session_state: st.session_state.stage3_ans = []
 if 'mode' not in st.session_state: st.session_state.mode = 'normal'
 if 'show_answer' not in st.session_state: st.session_state.show_answer = False
+if 'trigger_audio' not in st.session_state: st.session_state.trigger_audio = None
+if 'trigger_click' not in st.session_state: st.session_state.trigger_click = False
 if 'daily_quiz_active' not in st.session_state: st.session_state.daily_quiz_active = False
 if 'quiz_q_index' not in st.session_state: st.session_state.quiz_q_index = 0
 if 'quiz_score' not in st.session_state: st.session_state.quiz_score = 0
 if 'quiz_data' not in st.session_state: st.session_state.quiz_data = []
-if 'trigger_audio' not in st.session_state: st.session_state.trigger_audio = None
-if 'trigger_click' not in st.session_state: st.session_state.trigger_click = False
 
 # ==========================================
 # 5. 側邊欄
@@ -295,7 +254,8 @@ with st.sidebar:
     if st.session_state.mode == 'normal' and st.session_state.data_loaded:
         st.markdown("---")
         st.write(f"目前: Day {st.session_state.current_day}")
-        # 天數選單：一排4個
+        
+        # 這裡依然使用 columns，因為側邊欄本來就很窄
         cols = st.columns(4)
         for i in range(1, 31):
             is_done = i in st.session_state.completed_days
@@ -401,22 +361,25 @@ if st.session_state.daily_quiz_active:
 # 正常學習
 if st.session_state.word_index >= len(current_words):
     st.success("🎉 單字學習完畢！")
-    if st.button("⚔️ 進入聽力驗收 (Quiz)", type="primary"):
-        questions = []
-        all_meanings = st.session_state.df['meaning'].unique().tolist()
-        for idx, row in current_words.iterrows():
-            target = row['word']
-            correct = row['meaning']
-            distractors = random.sample([m for m in all_meanings if m != correct], 3)
-            options = distractors + [correct]
-            random.shuffle(options)
-            questions.append({"word": target, "correct": correct, "options": options})
-        random.shuffle(questions)
-        st.session_state.quiz_data = questions
-        st.session_state.quiz_q_index = 0
-        st.session_state.quiz_score = 0
-        st.session_state.daily_quiz_active = True
-        st.rerun()
+    with st.container():
+        st.markdown('<div class="confirm-btn">', unsafe_allow_html=True)
+        if st.button("⚔️ 進入聽力驗收 (Quiz)"):
+            questions = []
+            all_meanings = st.session_state.df['meaning'].unique().tolist()
+            for idx, row in current_words.iterrows():
+                target = row['word']
+                correct = row['meaning']
+                distractors = random.sample([m for m in all_meanings if m != correct], 3)
+                options = distractors + [correct]
+                random.shuffle(options)
+                questions.append({"word": target, "correct": correct, "options": options})
+            random.shuffle(questions)
+            st.session_state.quiz_data = questions
+            st.session_state.quiz_q_index = 0
+            st.session_state.quiz_score = 0
+            st.session_state.daily_quiz_active = True
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
 w_data = current_words.iloc[st.session_state.word_index]
@@ -428,6 +391,7 @@ example = str(w_data.get('example', ''))
 if example == 'nan': example = ""
 if ipa == 'nan': ipa = ""
 
+# 進度圓圈
 steps_html = """
 <div style="display:flex;justify-content:center;margin-bottom:20px;">
     <div style="width:40px;height:40px;border-radius:50%;background:{c1};color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;margin:0 10px;box-shadow:{s1};">學</div>
@@ -479,7 +443,6 @@ if st.session_state.stage == 1:
         """, unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
-    
     col1, col2 = st.columns(2)
     in_note = target in st.session_state.notebook
     if col1.button("💔 移除" if in_note else "❤️ 收藏"):
@@ -499,7 +462,7 @@ if st.session_state.stage == 1:
         save_current_state()
         st.rerun()
 
-# Stage 2: 音節拼圖
+# Stage 2: 音節拼圖 (強制橫排處理)
 elif st.session_state.stage == 2:
     st.markdown(f"""<div class="word-card"><h2 style="color:#555;">{meaning}</h2></div>""", unsafe_allow_html=True)
     curr = "".join(st.session_state.stage2_ans)
@@ -509,10 +472,11 @@ elif st.session_state.stage == 2:
          chunks = split_syllables_chunk(target)
          st.session_state.stage2_pool = random.sample(chunks, len(chunks))
 
-    cols = st.columns(4) # 強制橫排 4 欄
+    # 使用 columns 分 3 欄，配合 CSS 強制寬度
+    cols = st.columns(3)
     for i, s in enumerate(st.session_state.stage2_pool):
         if s not in st.session_state.stage2_ans:
-            if cols[i%4].button(s, key=f"s2_{i}"):
+            if cols[i%3].button(s, key=f"s2_{i}"):
                 st.session_state.stage2_ans.append(s)
                 st.session_state.trigger_click = True
                 save_current_state()
@@ -536,10 +500,9 @@ elif st.session_state.stage == 2:
             st.rerun()
         else: st.error("錯誤")
 
-# Stage 3: 字母拼寫
+# Stage 3: 字母拼寫 (強制橫排處理)
 elif st.session_state.stage == 3:
     st.markdown(f"""<div class="word-card"><h2 style="color:#555;">{meaning}</h2></div>""", unsafe_allow_html=True)
-    
     curr_ans_str = "".join(st.session_state.stage3_ans)
     st.markdown(f'<div class="answer-column">{curr_ans_str}</div>', unsafe_allow_html=True)
     
@@ -552,9 +515,10 @@ elif st.session_state.stage == 3:
 
     if not is_finished:
         st.write("👇 點擊字母：")
-        cols = st.columns(4) # 強制橫排 4 欄
+        # 這裡的 columns 配合 CSS 的強制寬度，可以確保一排 4 個
+        pool_cols = st.columns(4)
         for i, char in enumerate(st.session_state.stage3_pool):
-            if cols[i%4].button(char, key=f"s3_char_{i}"):
+            if pool_cols[i % 4].button(char, key=f"s3_char_{i}"):
                 st.session_state.stage3_ans.append(char)
                 st.session_state.stage3_pool.pop(i)
                 st.session_state.trigger_click = True
