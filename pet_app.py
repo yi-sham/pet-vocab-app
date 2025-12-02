@@ -15,7 +15,7 @@ except ImportError:
 # ==========================================
 # 1. 設定與 CSS (宮崎駿風格)
 # ==========================================
-st.set_page_config(page_title="PET 魔法森林 (筆記本版)", page_icon="🌱", layout="centered")
+st.set_page_config(page_title="PET 魔法森林 (存檔版)", page_icon="🌱", layout="centered")
 
 ghibli_css = """
 <style>
@@ -40,36 +40,58 @@ ghibli_css = """
         text-align: center; margin-bottom: 20px; position: relative;
     }
     
+    /* 音節方塊 (Stage 2) */
+    .syllable-box {
+        display: inline-block; background-color: #ff8c42; color: white;
+        padding: 10px 15px; margin: 5px; border-radius: 8px;
+        font-size: 1.2rem; font-weight: bold; border-bottom: 3px solid #d85c00;
+    }
+
     /* 答案列 */
     .answer-column {
         background-color: #fff9c4; padding: 15px; border-radius: 12px;
-        border: 3px dashed #fbc02d; text-align: center; font-size: 2.2rem;
+        border: 3px dashed #fbc02d; text-align: center; font-size: 2.0rem;
         color: #333; font-weight: bold; min-height: 80px; margin-bottom: 20px;
-        letter-spacing: 5px;
+        letter-spacing: 3px;
     }
-
-    /* 收藏按鈕樣式 (紅色) */
-    .like-btn { color: #e57373 !important; border-color: #e57373 !important; background: white !important; }
 </style>
 """
 st.markdown(ghibli_css, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 本地記憶系統 (資料庫、進度、筆記本)
+# 2. 強大記憶系統 (資料庫 + 詳細進度)
 # ==========================================
 DB_FILE = 'pet_database.csv'
-PROGRESS_FILE = 'progress.json'
-NOTEBOOK_FILE = 'notebook.json'
+SAVE_FILE = 'user_save.json' # 專門存現在測到哪裡
 
-def load_json(file_path):
-    if os.path.exists(file_path):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return set(json.load(f))
-    return set()
+def load_save_state():
+    """讀取上次的詳細進度"""
+    if os.path.exists(SAVE_FILE):
+        try:
+            with open(SAVE_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            pass
+    # 預設值
+    return {
+        "current_day": 1,
+        "word_index": 0,
+        "stage": 1,
+        "notebook": [],
+        "completed_days": []
+    }
 
-def save_json(file_path, data_set):
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(list(data_set), f)
+def save_current_state():
+    """隨時儲存目前的詳細進度"""
+    state = {
+        "current_day": st.session_state.current_day,
+        "word_index": st.session_state.word_index,
+        "stage": st.session_state.stage,
+        "notebook": list(st.session_state.notebook),
+        "completed_days": list(st.session_state.completed_days)
+    }
+    with open(SAVE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(state, f)
 
 # ==========================================
 # 3. Word 解析器
@@ -107,8 +129,9 @@ def parse_word_file(uploaded_file):
     return pd.DataFrame(data)
 
 # ==========================================
-# 4. 初始化
+# 4. 初始化 (載入資料與進度)
 # ==========================================
+# 1. 載入單字庫
 if 'df' not in st.session_state:
     if os.path.exists(DB_FILE):
         st.session_state.df = pd.read_csv(DB_FILE)
@@ -117,25 +140,64 @@ if 'df' not in st.session_state:
         st.session_state.df = pd.DataFrame()
         st.session_state.data_loaded = False
 
-if 'completed_days' not in st.session_state: st.session_state.completed_days = load_json(PROGRESS_FILE)
-if 'notebook' not in st.session_state: st.session_state.notebook = load_json(NOTEBOOK_FILE)
+# 2. 載入使用者進度 (如果是第一次開啟)
+if 'initialized' not in st.session_state:
+    saved_data = load_save_state()
+    st.session_state.current_day = saved_data["current_day"]
+    st.session_state.word_index = saved_data["word_index"]
+    st.session_state.stage = saved_data["stage"]
+    st.session_state.notebook = set(saved_data["notebook"])
+    st.session_state.completed_days = set(saved_data["completed_days"])
+    st.session_state.initialized = True
 
-if 'current_day' not in st.session_state: st.session_state.current_day = 1
-if 'word_index' not in st.session_state: st.session_state.word_index = 0
-if 'stage' not in st.session_state: st.session_state.stage = 1
+# 其他 UI 變數
+if 'stage2_pool' not in st.session_state: st.session_state.stage2_pool = []
+if 'stage2_ans' not in st.session_state: st.session_state.stage2_ans = []
 if 'stage3_pool' not in st.session_state: st.session_state.stage3_pool = []
 if 'stage3_ans' not in st.session_state: st.session_state.stage3_ans = []
-if 'mode' not in st.session_state: st.session_state.mode = 'normal' # normal 或 notebook
+if 'mode' not in st.session_state: st.session_state.mode = 'normal'
 
 # ==========================================
-# 5. 側邊欄
+# 5. 側邊欄 (檔案管理與地圖)
 # ==========================================
 with st.sidebar:
-    st.title("🎒 冒險背包")
+    st.title("📂 資料中心")
     
+    # 更換檔案邏輯
+    if st.session_state.data_loaded:
+        if st.button("🗑️ 清除舊資料 (更換檔案)"):
+            if os.path.exists(DB_FILE): os.remove(DB_FILE)
+            if os.path.exists(SAVE_FILE): os.remove(SAVE_FILE) # 也要清除進度，不然會報錯
+            st.session_state.data_loaded = False
+            st.session_state.initialized = False # 重新初始化
+            st.rerun()
+            
+    # 上傳區
+    if not st.session_state.data_loaded:
+        st.warning("請上傳 Word 檔")
+        uploaded_file = st.file_uploader("選擇檔案...", type=['docx'])
+        if uploaded_file:
+            try:
+                with st.spinner("魔法讀取中..."):
+                    df_new = parse_word_file(uploaded_file)
+                    df_new.to_csv(DB_FILE, index=False)
+                    st.session_state.df = df_new
+                    st.session_state.data_loaded = True
+                    # 重置進度
+                    st.session_state.current_day = 1
+                    st.session_state.word_index = 0
+                    st.session_state.stage = 1
+                    save_current_state()
+                    st.success("讀取成功！")
+                    time.sleep(1)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"錯誤: {e}")
+
     # 模式切換
+    st.markdown("---")
     st.write("### 🎯 選擇模式")
-    mode_selection = st.radio("模式", ["🌲 森林闖關 (每日進度)", "📕 魔法筆記本 (重點複習)"], 
+    mode_selection = st.radio("模式", ["🌲 森林闖關", "📕 筆記本"], 
              index=0 if st.session_state.mode == 'normal' else 1)
     
     new_mode = 'normal' if "森林" in mode_selection else 'notebook'
@@ -145,93 +207,62 @@ with st.sidebar:
         st.session_state.stage = 1
         st.rerun()
 
-    if st.session_state.mode == 'notebook':
-        st.info(f"筆記本目前有 **{len(st.session_state.notebook)}** 個單字")
-        if len(st.session_state.notebook) == 0:
-            st.warning("筆記本是空的！快去闖關把不會的字加入筆記吧！")
-
-    # 檔案上傳 (只在需要時顯示)
-    if not st.session_state.data_loaded:
-        st.warning("⚠️ 請先上傳檔案")
-        uploaded_file = st.file_uploader("上傳 PET 詞彙28天.docx", type=['docx'])
-        if uploaded_file:
-            try:
-                with st.spinner("讀取中..."):
-                    df_new = parse_word_file(uploaded_file)
-                    df_new.to_csv(DB_FILE, index=False)
-                    st.session_state.df = df_new
-                    st.session_state.data_loaded = True
-                    st.success("成功！")
-                    time.sleep(1)
-                    st.rerun()
-            except Exception as e:
-                st.error(f"錯誤: {e}")
-    
-    # 30天地圖 (只在普通模式顯示)
+    # 30天地圖
     if st.session_state.mode == 'normal' and st.session_state.data_loaded:
         st.markdown("---")
-        st.write("### 🗺️ 30天進度")
+        st.write(f"目前進度: Day {st.session_state.current_day}")
         cols = st.columns(5)
         for i in range(1, 31):
             is_done = i in st.session_state.completed_days
             label = f"✅\n{i}" if is_done else f"{i}"
             has_data = not st.session_state.df.empty and i in st.session_state.df['day'].values
             
-            # 高亮目前天數
             btn_type = "primary" if i == st.session_state.current_day else "secondary"
-            
             if cols[(i-1)%5].button(label, key=f"day_{i}", disabled=not has_data, type=btn_type):
                 st.session_state.current_day = i
                 st.session_state.word_index = 0
                 st.session_state.stage = 1
+                save_current_state() # 切換天數也要存檔
                 st.rerun()
 
 # ==========================================
 # 6. 主程式
 # ==========================================
 if not st.session_state.data_loaded:
+    st.info("👈 請在左側上傳 Word 檔")
     st.stop()
 
-# 決定要顯示哪些單字
+# 決定單字列表
 if st.session_state.mode == 'normal':
-    # 顯示當天的單字
     current_words = st.session_state.df[st.session_state.df['day'] == st.session_state.current_day].reset_index(drop=True)
     header_text = f"Day {st.session_state.current_day} - 闖關中"
 else:
-    # 顯示筆記本中的單字
     if len(st.session_state.notebook) == 0:
-        st.header("📕 魔法筆記本")
-        st.image("https://cdn-icons-png.flaticon.com/512/7486/7486803.png", width=100)
-        st.write("你的筆記本是空的。")
-        st.write("去「森林闖關」模式，看到不會的字點擊 ❤️ 就可以加進來喔！")
+        st.info("筆記本是空的，快去收藏單字吧！")
         st.stop()
-        
-    # 篩選出筆記本裡的字
     current_words = st.session_state.df[st.session_state.df['word'].isin(st.session_state.notebook)].reset_index(drop=True)
-    header_text = f"📕 魔法筆記本 - 複習 ({len(current_words)} 字)"
+    header_text = f"📕 筆記本複習"
 
 if current_words.empty:
-    st.warning("沒有單字資料。")
+    st.warning("無資料")
     st.stop()
 
-# 檢查是否完成
+# 檢查完成
 if st.session_state.word_index >= len(current_words):
     st.balloons()
-    st.success("🎉 恭喜！這組單字全部練習完畢！")
-    
-    # 只有在普通模式才打卡
+    st.success("🎉 本日挑戰完成！")
     if st.session_state.mode == 'normal':
         if st.session_state.current_day not in st.session_state.completed_days:
             st.session_state.completed_days.add(st.session_state.current_day)
-            save_json(PROGRESS_FILE, st.session_state.completed_days)
-            st.toast("打卡成功！")
-        if st.button("🚀 下一天"):
+            save_current_state() # 完成也存檔
+        if st.button("🚀 進入下一天"):
             st.session_state.current_day += 1
             st.session_state.word_index = 0
             st.session_state.stage = 1
+            save_current_state()
             st.rerun()
     else:
-        if st.button("🔄 再複習一次"):
+        if st.button("🔄 重頭複習"):
             st.session_state.word_index = 0
             st.session_state.stage = 1
             st.rerun()
@@ -243,25 +274,27 @@ target = str(w_data['word'])
 meaning = str(w_data['meaning'])
 pos = str(w_data.get('pos', ''))
 
-# 工具函式
-def play_audio(text, autoplay=False):
+# 工具函式：發音與拆字
+def play_audio(text):
     try:
         tts = gTTS(text=text, lang='en')
         fp = BytesIO()
         tts.write_to_fp(fp)
-        st.audio(fp, format='audio/mp3', autoplay=autoplay)
+        st.audio(fp, format='audio/mp3', autoplay=True)
     except: pass
 
-def split_syllables(word):
+def split_syllables_chunk(word):
+    """第二階段用：簡單的音節塊拆分"""
     if " " in word: return word.split(" ")
-    syllables = []
+    chunks = []
     temp = word
     while len(temp) > 0:
+        # 簡單邏輯：3個字母或2個字母一組
         cut = 3 if len(temp) > 5 else 2
-        if len(temp) <= 3: syllables.append(temp); break
-        syllables.append(temp[:cut])
+        if len(temp) <= 3: chunks.append(temp); break
+        chunks.append(temp[:cut])
         temp = temp[cut:]
-    return syllables
+    return chunks
 
 # 介面顯示
 st.subheader(f"{header_text}")
@@ -277,81 +310,87 @@ if st.session_state.stage == 1:
     </div>
     """, unsafe_allow_html=True)
     
-    play_audio(target, autoplay=True)
+    # 自動發音 (第一次進入時)
+    # 為了避免重整一直念，可以加個 session 判斷，這裡簡化直接放按鈕比較不吵
     
-    # 筆記本操作按鈕
-    col_note, col_audio, col_next = st.columns([1, 1, 2])
+    col1, col2, col3 = st.columns([1,1,2])
     
-    # 判斷是否在筆記本中
-    is_in_notebook = target in st.session_state.notebook
-    
-    with col_note:
-        if is_in_notebook:
-            if st.button("💔 移除", help="從筆記本移除"):
-                st.session_state.notebook.remove(target)
-                save_json(NOTEBOOK_FILE, st.session_state.notebook)
-                st.toast(f"已移除 {target}")
-                st.rerun()
-        else:
-            if st.button("❤️ 筆記", help="加入筆記本"):
-                st.session_state.notebook.add(target)
-                save_json(NOTEBOOK_FILE, st.session_state.notebook)
-                st.toast(f"已收藏 {target}！")
-                st.rerun()
+    # 筆記按鈕
+    in_note = target in st.session_state.notebook
+    if col1.button("💔 移除" if in_note else "❤️ 筆記"):
+        if in_note: st.session_state.notebook.remove(target)
+        else: st.session_state.notebook.add(target)
+        save_current_state() # 筆記變動也要存
+        st.rerun()
 
-    with col_audio:
-        if st.button("🔊 發音"): play_audio(target)
-        
-    with col_next:
-        if st.button("下一步 ➡"):
-            st.session_state.shuffled_syl = random.sample(split_syllables(target), len(split_syllables(target)))
-            st.session_state.user_ans = []
-            st.session_state.stage = 2
-            st.rerun()
+    # 發音按鈕 (第一階段)
+    if col2.button("🔊 發音", key="s1_audio"):
+        play_audio(target)
 
-# --- Stage 2: 音節拼圖 ---
+    if col3.button("下一步 ➡"):
+        # 準備 Stage 2 (音節塊)
+        chunks = split_syllables_chunk(target)
+        st.session_state.stage2_pool = random.sample(chunks, len(chunks))
+        st.session_state.stage2_ans = []
+        st.session_state.stage = 2
+        save_current_state() # 進下一關存檔
+        st.rerun()
+
+# --- Stage 2: 音節拼圖 (Syllable Puzzle) ---
 elif st.session_state.stage == 2:
-    st.subheader("🧩 階段二：拼湊音節")
+    st.subheader("🧩 階段二：音節拼圖")
     st.info(f"提示：{meaning}")
     
-    curr = "".join(st.session_state.user_ans)
+    # 發音按鈕 (第二階段)
+    if st.button("🔊 聽發音提示", key="s2_audio"):
+        play_audio(target)
+
+    # 答案區
+    curr = "".join(st.session_state.stage2_ans)
     st.markdown(f'<div class="answer-column">{curr}</div>', unsafe_allow_html=True)
     
+    # 選項區
     cols = st.columns(4)
-    for i, s in enumerate(st.session_state.shuffled_syl):
-        if cols[i%4].button(s, key=f"s2_{i}"):
-            st.session_state.user_ans.append(s)
-            st.rerun()
+    for i, s in enumerate(st.session_state.stage2_pool):
+        if s not in st.session_state.stage2_ans: # 簡單邏輯：點過的隱藏
+            if cols[i%4].button(s, key=f"s2_{i}"):
+                st.session_state.stage2_ans.append(s)
+                st.rerun()
             
     c1, c2 = st.columns(2)
     if c1.button("↺ 重來"):
-        st.session_state.user_ans = []
+        st.session_state.stage2_ans = []
         st.rerun()
     if c2.button("✅ 確認"):
-        if "".join(st.session_state.user_ans) == target.replace(" ", ""):
+        if "".join(st.session_state.stage2_ans) == target.replace(" ", ""):
             st.success("Correct!")
             time.sleep(0.5)
-            # 準備 Stage 3
+            # 準備 Stage 3 (字母打散)
             chars = list(target.replace(" ", ""))
             random.shuffle(chars)
             st.session_state.stage3_pool = chars
             st.session_state.stage3_ans = []
             st.session_state.stage = 3
+            save_current_state() # 進下一關存檔
             st.rerun()
         else:
-            st.error("錯誤，請再試試！")
+            st.error("錯誤")
 
-# --- Stage 3: 字母方塊拼寫 (觸控版) ---
+# --- Stage 3: 字母拼寫 (Letter Spelling) ---
 elif st.session_state.stage == 3:
     st.subheader("✍️ 階段三：字母拼寫")
     st.info(f"請拼出：{meaning}")
     
+    # 發音按鈕 (第三階段)
+    if st.button("🔊 聽發音提示", key="s3_audio"):
+        play_audio(target)
+
     # 答案區
     curr_ans_str = "".join(st.session_state.stage3_ans)
     st.markdown(f'<div class="answer-column">{curr_ans_str}</div>', unsafe_allow_html=True)
     
     # 字母按鈕池
-    st.write("點擊下方字母填入：")
+    st.write("點擊字母：")
     pool_cols = st.columns(6)
     for i, char in enumerate(st.session_state.stage3_pool):
         if pool_cols[i % 6].button(char, key=f"s3_char_{i}"):
@@ -384,6 +423,7 @@ elif st.session_state.stage == 3:
             time.sleep(1.0)
             st.session_state.word_index += 1
             st.session_state.stage = 1
+            save_current_state() # 完成一個字也要存
             st.rerun()
         else:
-            st.error(f"拼錯囉！再試試看！")
+            st.error(f"拼錯囉！")
